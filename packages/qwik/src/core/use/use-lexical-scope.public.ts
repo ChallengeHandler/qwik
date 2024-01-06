@@ -2,7 +2,6 @@ import { assertDefined } from '../error/assert';
 import { inflateQrl, parseQRL } from '../qrl/qrl';
 import { getWrappingContainer, getInvokeContext } from './use-core';
 import { assertQrl } from '../qrl/qrl-class';
-import { getContext } from '../state/context';
 import { resumeIfNeeded } from '../container/resume';
 import { _getContainerState } from '../container/container';
 
@@ -31,8 +30,8 @@ export const useLexicalScope = <VARS extends any[]>(): VARS => {
     qrl = parseQRL(decodeURIComponent(String(context.$url$)), container);
     assertQrl(qrl);
     resumeIfNeeded(container);
-    const elCtx = getContext(el, _getContainerState(container));
-    inflateQrl(qrl, elCtx);
+    const containerState = _getContainerState(container);
+    inflateQrl(qrl, containerState.$pauseCtx$!);
   } else {
     assertQrl(qrl);
     assertDefined(

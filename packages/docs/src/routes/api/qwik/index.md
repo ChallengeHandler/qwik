@@ -2527,7 +2527,6 @@ export interface SnapshotState
 | --------- | --------- | ----------------------------- | ----------- |
 | [ctx](#)  |           | [SnapshotMeta](#snapshotmeta) |             |
 | [objs](#) |           | any[]                         |             |
-| [refs](#) |           | Record&lt;string, string&gt;  |             |
 | [subs](#) |           | any[]                         |             |
 
 [Edit this section](https://github.com/BuilderIO/qwik/tree/main/packages/qwik/src/core/container/container.ts)

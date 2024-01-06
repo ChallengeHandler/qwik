@@ -142,11 +142,11 @@ export async function renderToStream(
     serverData: opts.serverData,
     base: buildBase,
     beforeContent,
-    beforeClose: async (contexts, containerState, _dynamic, textNodes) => {
+    beforeClose: async (contexts, containerState, _dynamic) => {
       renderTime = renderTimer();
       const snapshotTimer = createTimer();
 
-      snapshotResult = await _pauseFromContexts(contexts, containerState, undefined, textNodes);
+      snapshotResult = await _pauseFromContexts(contexts, containerState);
 
       const children: (JSXNode | null)[] = [];
       if (opts.prefetchStrategy !== null) {

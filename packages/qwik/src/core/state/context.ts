@@ -30,7 +30,6 @@ export const HOST_REMOVED = 1 << 4;
 export interface QContext {
   /** VDOM element. */
   $element$: QwikElement;
-  $refMap$: any[];
   $flags$: number;
   /** QId, for referenced components */
   $id$: string;
@@ -78,13 +77,9 @@ export const getContext = (el: QwikElement, containerState: ContainerState): QCo
     const pauseCtx = containerState.$pauseCtx$;
     elCtx.$id$ = elementID;
     if (pauseCtx) {
-      const { getObject, meta, refs } = pauseCtx;
+      const { getObject, meta } = pauseCtx;
       if (isElement(el)) {
-        const refMap = refs[elementID];
-        if (refMap) {
-          elCtx.$refMap$ = refMap.split(' ').map(getObject);
-          elCtx.li = getDomListeners(elCtx, containerState.$containerEl$);
-        }
+        elCtx.li = getDomListeners(elCtx, containerState.$containerEl$, containerState.$pauseCtx$!);
       } else {
         const styleIds = el.getAttribute(QScopedStyle);
         elCtx.$scopeIds$ = styleIds ? styleIds.split('|') : null;
@@ -149,7 +144,6 @@ export const createContext = (element: Element | VirtualElement): QContext => {
     $flags$: 0,
     $id$: '',
     $element$: element,
-    $refMap$: [],
     li: [],
     $tasks$: null,
     $seq$: null,

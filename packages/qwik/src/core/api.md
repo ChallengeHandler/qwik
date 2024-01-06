@@ -874,7 +874,7 @@ export interface SelectHTMLAttributes<T extends Element> extends Attrs<'select',
 }
 
 // @internal (undocumented)
-export const _serializeData: (data: any, pureQRL?: boolean) => Promise<string>;
+export const _serializeData: (data: any) => Promise<string>;
 
 // @public
 export const setPlatform: (plt: CorePlatform) => CorePlatform;
@@ -949,8 +949,6 @@ export interface SnapshotState {
     ctx: SnapshotMeta;
     // (undocumented)
     objs: any[];
-    // (undocumented)
-    refs: Record<string, string>;
     // (undocumented)
     subs: any[];
 }

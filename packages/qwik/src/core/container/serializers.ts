@@ -126,7 +126,7 @@ const QRLSerializer = /*#__PURE__*/ serializer<QRLInternal>({
   },
   $serialize$: (obj, getObjId) => {
     return serializeQRL(obj, {
-      $getObjId$: getObjId,
+      $addObjRoot$: getObjId,
     });
   },
   $prepare$: (data, containerState) => {
@@ -243,7 +243,7 @@ const ComponentSerializer = /*#__PURE__*/ serializer<Component>({
   $serialize$: (obj, getObjId) => {
     const [qrl]: [QRLInternal] = (obj as any)[SERIALIZABLE_STATE];
     return serializeQRL(qrl, {
-      $getObjId$: getObjId,
+      $addObjRoot$: getObjId,
     });
   },
   $prepare$: (data, containerState) => {

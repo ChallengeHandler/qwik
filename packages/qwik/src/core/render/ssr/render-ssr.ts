@@ -71,8 +71,7 @@ export interface RenderSSROptions {
   beforeClose?: (
     contexts: QContext[],
     containerState: ContainerState,
-    containsDynamic: boolean,
-    textNodes: Map<string, string>
+    containsDynamic: boolean
   ) => Promise<JSXNode>;
   manifestHash: string;
 }
@@ -140,7 +139,7 @@ export const _renderSSR = async (node: JSXNode, opts: RenderSSROptions) => {
       $contexts$: [],
       $headNodes$: root === 'html' ? headNodes : [],
       $locale$: opts.serverData?.locale,
-      $textNodes$: new Map(),
+      $textNodes$: containerState.$textNodes$,
     },
     $projectedChildren$: undefined,
     $projectedCtxs$: undefined,
@@ -202,12 +201,7 @@ const renderRoot = async (
     0,
     beforeClose
       ? (stream: StreamWriter) => {
-          const result = beforeClose(
-            ssrCtx.$static$.$contexts$,
-            containerState,
-            false,
-            ssrCtx.$static$.$textNodes$
-          );
+          const result = beforeClose(ssrCtx.$static$.$contexts$, containerState, false);
           return processData(result, rCtx, ssrCtx, stream, 0, undefined);
         }
       : undefined

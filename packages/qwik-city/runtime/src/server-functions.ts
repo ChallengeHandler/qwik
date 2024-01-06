@@ -317,7 +317,7 @@ export const serverQrl = <T extends ServerFunction>(qrl: QRL<T>): ServerQRL<T> =
             'X-QRL': hash,
           },
           signal,
-          body: await _serializeData([qrl, ...filtered], false),
+          body: await _serializeData([qrl, ...filtered]),
         });
 
         const contentType = res.headers.get('Content-Type');

@@ -1,5 +1,18 @@
+import type { ContainerState, GetObjID, PauseContext } from '../container/container';
+import { mapJoin } from '../container/pause';
+import { assertDefined, assertElement, assertTrue } from '../error/assert';
+import {
+  qError,
+  QError_dynamicImportFailed,
+  QError_qrlMissingChunk,
+  QError_unknownTypeArgument,
+} from '../error/error';
+import { getPlatform } from '../platform/platform';
+import type { QContext } from '../state/context';
 import { EMPTY_ARRAY } from '../util/flyweight';
-import type { QRL } from './qrl.public';
+import { throwErrorAndStop } from '../util/log';
+import { qRuntimeQrl, qSerialize } from '../util/qdev';
+import { isFunction, isString } from '../util/types';
 import {
   assertQrl,
   createQRL,
@@ -8,20 +21,7 @@ import {
   isSyncQrl,
   type QRLInternal,
 } from './qrl-class';
-import { isFunction, isString } from '../util/types';
-import {
-  qError,
-  QError_dynamicImportFailed,
-  QError_qrlMissingChunk,
-  QError_unknownTypeArgument,
-} from '../error/error';
-import { qRuntimeQrl, qSerialize } from '../util/qdev';
-import { getPlatform } from '../platform/platform';
-import { assertDefined, assertTrue, assertElement } from '../error/assert';
-import type { ContainerState, MustGetObjID } from '../container/container';
-import type { QContext } from '../state/context';
-import { mapJoin } from '../container/pause';
-import { throwErrorAndStop } from '../util/log';
+import type { QRL } from './qrl.public';
 
 // https://regexr.com/68v72
 const EXTRACT_IMPORT_PATH = /\(\s*(['"])([^\1]+)\1\s*\)/;
@@ -148,12 +148,11 @@ export const inlinedQrlDEV = <T = any>(
 };
 
 export interface QRLSerializeOptions {
-  $getObjId$?: MustGetObjID;
-  $addRefMap$?: (obj: any) => string;
+  $addObjRoot$: GetObjID;
   $containerState$?: ContainerState;
 }
 
-export const serializeQRL = (qrl: QRLInternal, opts: QRLSerializeOptions = {}) => {
+export const serializeQRL = (qrl: QRLInternal, opts: QRLSerializeOptions) => {
   assertTrue(qSerialize, 'In order to serialize a QRL, qSerialize must be true');
   assertQrl(qrl);
   let symbol = qrl.$symbol$;
@@ -200,11 +199,7 @@ export const serializeQRL = (qrl: QRLInternal, opts: QRLSerializeOptions = {}) =
   const capture = qrl.$capture$;
   const captureRef = qrl.$captureRef$;
   if (captureRef && captureRef.length) {
-    if (opts.$getObjId$) {
-      output += `[${mapJoin(captureRef, opts.$getObjId$, ' ')}]`;
-    } else if (opts.$addRefMap$) {
-      output += `[${mapJoin(captureRef, opts.$addRefMap$, ' ')}]`;
-    }
+    output += `[${mapJoin(captureRef, opts.$addObjRoot$, ' ')}]`;
   } else if (capture && capture.length > 0) {
     output += `[${capture.join(' ')}]`;
   }
@@ -219,7 +214,7 @@ export const serializeQRLs = (
   assertElement(elCtx.$element$);
   const opts: QRLSerializeOptions = {
     $containerState$: containerState,
-    $addRefMap$: (obj) => addToArray(elCtx.$refMap$, obj),
+    $addObjRoot$: containerState.$addObjRoot$,
   };
   return mapJoin(existingQRLs, (qrl) => serializeQRL(qrl, opts), '\n');
 };
@@ -258,22 +253,10 @@ const indexOf = (text: string, startIdx: number, char: string) => {
   return charIdx == -1 ? endIdx : charIdx;
 };
 
-const addToArray = (array: any[], obj: any) => {
-  const index = array.indexOf(obj);
-  if (index === -1) {
-    array.push(obj);
-    return String(array.length - 1);
-  }
-  return String(index);
-};
-
-export const inflateQrl = (qrl: QRLInternal, elCtx: QContext) => {
+export const inflateQrl = (qrl: QRLInternal, ctx: PauseContext) => {
   assertDefined(qrl.$capture$, 'invoke: qrl capture must be defined inside useLexicalScope()', qrl);
   return (qrl.$captureRef$ = qrl.$capture$.map((idx) => {
-    const int = parseInt(idx, 10);
-    const obj = elCtx.$refMap$[int];
-    assertTrue(elCtx.$refMap$.length > int, 'out of bounds inflate access', idx);
-    return obj;
+    return ctx.getObject(idx);
   }));
 };
 

@@ -308,7 +308,7 @@ async function pureServerFunction(ev: RequestEvent) {
           }
         } catch (err) {
           ev.headers.set('Content-Type', 'application/qwik-json');
-          ev.send(500, await qwikSerializer._serializeData(err, true));
+          ev.send(500, await qwikSerializer._serializeData(err));
           return;
         }
         if (isAsyncIterator(result)) {
@@ -319,7 +319,7 @@ async function pureServerFunction(ev: RequestEvent) {
             if (isDev) {
               verifySerializable(qwikSerializer, item, qrl);
             }
-            const message = await qwikSerializer._serializeData(item, true);
+            const message = await qwikSerializer._serializeData(item);
             if (ev.signal.aborted) {
               break;
             }
@@ -329,7 +329,7 @@ async function pureServerFunction(ev: RequestEvent) {
         } else {
           verifySerializable(qwikSerializer, result, qrl);
           ev.headers.set('Content-Type', 'application/qwik-json');
-          const message = await qwikSerializer._serializeData(result, true);
+          const message = await qwikSerializer._serializeData(result);
           ev.send(200, message);
         }
         return;
@@ -535,7 +535,7 @@ export async function renderQData(requestEv: RequestEvent) {
     const writer = requestEv.getWritableStream().getWriter();
     const qwikSerializer = (requestEv as RequestEventInternal)[RequestEvQwikSerializer];
     // write just the page json data to the response body
-    const data = await qwikSerializer._serializeData(qData, true);
+    const data = await qwikSerializer._serializeData(qData);
     writer.write(encoder.encode(data));
     requestEv.sharedMap.set('qData', qData);
 

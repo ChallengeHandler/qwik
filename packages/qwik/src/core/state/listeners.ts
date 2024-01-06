@@ -8,6 +8,7 @@ import { qRuntimeQrl, qSerialize } from '../util/qdev';
 import { fromCamelToKebabCase } from '../util/case';
 import type { QContext } from './context';
 import type { PossibleEvents } from '../use/use-core';
+import type { PauseContext } from '../container/container';
 
 const ON_PROP_REGEX = /^(on|window:|document:)/;
 
@@ -98,7 +99,11 @@ const ensureQrl = <T = unknown>(value: any, containerEl: Element | undefined) =>
   return qrl;
 };
 
-export const getDomListeners = (elCtx: QContext, containerEl: Element): Listener[] => {
+export const getDomListeners = (
+  elCtx: QContext,
+  containerEl: Element,
+  pauseCtx: PauseContext
+): Listener[] => {
   const attributes = (elCtx.$element$ as Element).attributes;
   const listeners: Listener[] = [];
   for (let i = 0; i < attributes.length; i++) {
@@ -112,7 +117,7 @@ export const getDomListeners = (elCtx: QContext, containerEl: Element): Listener
       for (const url of urls) {
         const qrl = parseQRL(url, containerEl) as Listener[1];
         if (qrl.$capture$) {
-          inflateQrl(qrl, elCtx);
+          inflateQrl(qrl, pauseCtx);
         }
         listeners.push([name, qrl]);
       }

@@ -1,19 +1,24 @@
-import { qError, QError_invalidRefValue } from '../error/error';
-import type { ResourceReturnInternal, SubscriberEffect } from '../use/use-task';
-import { seal } from '../util/qdev';
-import { isFunction, isObject } from '../util/types';
+import { qError, QError_invalidRefValue, QError_missingObjectId } from '../error/error';
+import { isQrl } from '../qrl/qrl-class';
 import type { QRL } from '../qrl/qrl.public';
-import { fromKebabToCamelCase } from '../util/case';
-import { QContainerAttr } from '../util/markers';
-import { isElement } from '../util/element';
+import type { QwikElement } from '../render/dom/virtual-element';
+import { directGetAttribute } from '../render/fast-calls';
 import {
   createSubscriptionManager,
+  getProxyTarget,
   type SubscriberSignal,
   type SubscriptionManager,
 } from '../state/common';
+import { tryGetContext, type QContext } from '../state/context';
 import type { Signal } from '../state/signal';
-import { directGetAttribute } from '../render/fast-calls';
-import type { QContext } from '../state/context';
+import type { ResourceReturnInternal, SubscriberEffect } from '../use/use-task';
+import { fromKebabToCamelCase } from '../util/case';
+import { isElement, isQwikElement } from '../util/element';
+import { ELEMENT_ID_PREFIX, QContainerAttr } from '../util/markers';
+import { isPromise } from '../util/promises';
+import { seal } from '../util/qdev';
+import { isFunction, isObject } from '../util/types';
+import { getPromiseValue } from './pause';
 
 export type GetObject = (id: string) => any;
 export type GetObjID = (obj: any) => string | null;
@@ -33,7 +38,6 @@ export type SnapshotMeta = Record<string, SnapshotMetaValue>;
 /** @public */
 export interface SnapshotState {
   ctx: SnapshotMeta;
-  refs: Record<string, string>;
   objs: any[];
   subs: any[];
 }
@@ -61,11 +65,17 @@ export type ObjToProxyMap = WeakMap<any, any>;
 export interface PauseContext {
   getObject: GetObject;
   meta: SnapshotMeta;
-  refs: Record<string, string>;
 }
 
 /** @public */
 export interface ContainerState {
+  /**
+   * Used to keep track of text nodes which have bound text.
+   *
+   * The text is than reused during serialization in JSON as a reference. This way we can save on
+   * not serializing the same string twice in HTML.
+   */
+  $textNodes$: Map<string, string>;
   readonly $containerEl$: Element;
 
   readonly $proxyMap$: ObjToProxyMap;
@@ -91,6 +101,10 @@ export interface ContainerState {
   readonly $styleIds$: Set<string>;
   readonly $events$: Set<string>;
   readonly $inlineFns$: Map<string, number>;
+  $mustGetObjId$: (obj: any) => string;
+  $getObjId$: (obj: any) => string | null;
+  $addObjRoot$(obj: any): string;
+  $addObjRoots$(objs: any[], noSerialize: any[]): void;
 }
 
 const CONTAINER_STATE = Symbol('ContainerState');
@@ -108,7 +122,96 @@ export const _getContainerState = (containerEl: Element): ContainerState => {
 };
 
 export const createContainerState = (containerEl: Element, base: string) => {
+  const objToId = new Map<any, string>();
+  const elementToIndex = new Map<Node | QwikElement, string | null>();
+  const getQId = (el: QwikElement): string | null => {
+    const ctx = tryGetContext(el);
+    if (ctx) {
+      return ctx.$id$;
+    }
+    return null;
+  };
+
+  const getElementID = (el: QwikElement): string | null => {
+    let id = elementToIndex.get(el);
+    if (id === undefined) {
+      id = getQId(el);
+      if (!id) {
+        console.warn('Missing ID', el);
+      }
+      elementToIndex.set(el, id);
+    }
+    return id;
+  };
+
+  const textNodes = new Map<string, string>();
+
+  const getObjId: GetObjID = (obj) => {
+    let suffix = '';
+    if (isPromise(obj)) {
+      const promiseValue = getPromiseValue(obj);
+      if (!promiseValue) {
+        return null;
+      }
+      obj = promiseValue.value;
+      if (promiseValue.resolved) {
+        suffix += '~';
+      } else {
+        suffix += '_';
+      }
+    }
+
+    if (isObject(obj)) {
+      const target = getProxyTarget(obj);
+      if (target) {
+        suffix += '!';
+        obj = target;
+      } else if (isQwikElement(obj)) {
+        const elID = getElementID(obj);
+        if (elID) {
+          return ELEMENT_ID_PREFIX + elID + suffix;
+        }
+        return null;
+      }
+    }
+    const id = objToId.get(obj);
+    if (id) {
+      return id + suffix;
+    }
+    const textId = textNodes.get(obj);
+    if (textId) {
+      return '*' + textId;
+    }
+    return null;
+  };
+
+  const addObjRoot = (obj: any) => {
+    let id = objToId.get(obj);
+    if (id == null) {
+      id = intToStr(objToId.size);
+      objToId.set(obj, id);
+    }
+    return id;
+  };
+
+  const mustGetObjId = (obj: any): string => {
+    const key = getObjId(obj);
+    if (key === null) {
+      // TODO(mhevery): this is a hack as we should never get here.
+      // This as a workaround for https://github.com/BuilderIO/qwik/issues/4979
+      if (isQrl(obj)) {
+        const id = intToStr(objToId.size);
+        objToId.set(obj, id);
+        return id;
+      } else {
+        throw qError(QError_missingObjectId, obj);
+      }
+    }
+    return key;
+  };
+
   const containerState: ContainerState = {
+    $textNodes$: textNodes,
     $containerEl$: containerEl,
 
     $elementIndex$: 0,
@@ -134,6 +237,22 @@ export const createContainerState = (containerEl: Element, base: string) => {
     $pauseCtx$: undefined,
     $subsManager$: null as any,
     $inlineFns$: new Map(),
+    $mustGetObjId$: mustGetObjId,
+    $getObjId$: getObjId,
+    $addObjRoot$: addObjRoot,
+    $addObjRoots$: (objs: any[], noSerialize: any[]) => {
+      let count = objToId.size;
+      for (const obj of objs) {
+        if (!objToId.has(obj)) {
+          objToId.set(obj, intToStr(count++));
+        }
+      }
+      let undefinedID = objToId.get(undefined);
+      objToId.set(undefined, (undefinedID = intToStr(count++)));
+      for (const obj of noSerialize) {
+        objToId.set(obj, undefinedID);
+      }
+    },
   };
   seal(containerState);
   containerState.$subsManager$ = createSubscriptionManager(containerState);

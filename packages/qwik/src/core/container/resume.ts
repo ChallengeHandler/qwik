@@ -246,7 +246,6 @@ export const resumeContainer = (containerEl: Element) => {
   containerState.$pauseCtx$ = {
     getObject,
     meta: pauseState.ctx,
-    refs: pauseState.refs,
   };
 
   directSetAttribute(containerEl, QContainerAttr, 'resumed');

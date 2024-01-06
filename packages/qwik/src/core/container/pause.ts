@@ -1,16 +1,8 @@
-import { assertDefined, assertElement, assertEqual } from '../error/assert';
+import { assertDefined, assertEqual } from '../error/assert';
 import { getDocument } from '../util/dom';
-import {
-  isComment,
-  isDocument,
-  isElement,
-  isNode,
-  isQwikElement,
-  isText,
-  isVirtualElement,
-} from '../util/element';
+import { isDocument, isElement, isNode, isQwikElement, isVirtualElement } from '../util/element';
 import { logWarn } from '../util/log';
-import { ELEMENT_ID, ELEMENT_ID_PREFIX, QContainerAttr, QScopedStyle } from '../util/markers';
+import { ELEMENT_ID, QContainerAttr, QScopedStyle } from '../util/markers';
 import { qDev } from '../util/qdev';
 
 import {
@@ -36,8 +28,8 @@ import {
   getSubscriptionManager,
   isConnected,
   serializeSubscription,
-  type Subscriptions,
   type SubscriberSignal,
+  type Subscriptions,
 } from '../state/common';
 import { QObjectImmutable, QObjectRecursive } from '../state/constants';
 import { HOST_FLAG_DYNAMIC, tryGetContext, type QContext } from '../state/context';
@@ -58,19 +50,18 @@ import {
   SHOW_COMMENT,
   SHOW_ELEMENT,
   _getContainerState,
+  createContainerState,
   intToStr,
   type ContainerState,
   type GetObjID,
   type SnapshotMeta,
   type SnapshotMetaValue,
   type SnapshotResult,
-  createContainerState,
 } from './container';
 import { UNDEFINED_PREFIX, collectDeps, serializeValue } from './serializers';
-import { isQrl } from '../qrl/qrl-class';
 
 /** @internal */
-export const _serializeData = async (data: any, pureQRL?: boolean) => {
+export const _serializeData = async (data: any) => {
   const containerState = createContainerState(null!, null!);
   const collector = createCollector(containerState);
   collectValue(data, collector, false);
@@ -180,12 +171,7 @@ export const pauseContainer = async (
   }
 
   // Serialize data
-  const data = await _pauseFromContexts(contexts, containerState, (el) => {
-    if (isNode(el) && isText(el)) {
-      return getTextID(el, containerState);
-    }
-    return null;
-  });
+  const data = await _pauseFromContexts(contexts, containerState);
 
   // Emit Qwik JSON
   const qwikJson = doc.createElement('script');
@@ -212,10 +198,11 @@ export const pauseContainer = async (
 export const _pauseFromContexts = async (
   allContexts: QContext[],
   containerState: ContainerState,
-  fallbackGetObjId?: GetObjID,
   textNodes?: Map<string, string>
 ): Promise<SnapshotResult> => {
   const collector = createCollector(containerState);
+  const mustGetObjId = containerState.$mustGetObjId$;
+  const getObjId = containerState.$getObjId$;
   textNodes?.forEach((_, key) => {
     collector.$seen$.add(key);
   });
@@ -275,7 +262,6 @@ Task Symbol: ${task.$qrl$.$symbol$}
   if (!hasListeners) {
     return {
       state: {
-        refs: {},
         ctx: {},
         objs: [],
         subs: [],
@@ -314,79 +300,7 @@ Task Symbol: ${task.$qrl$.$symbol$}
   }
 
   // Convert objSet to array
-  const elementToIndex = new Map<Node | QwikElement, string | null>();
   const objs = Array.from(collector.$objSet$.keys());
-  const objToId = new Map<any, string>();
-
-  const getElementID = (el: QwikElement): string | null => {
-    let id = elementToIndex.get(el);
-    if (id === undefined) {
-      id = getQId(el);
-      if (!id) {
-        console.warn('Missing ID', el);
-      }
-      elementToIndex.set(el, id);
-    }
-    return id;
-  };
-
-  const getObjId: GetObjID = (obj) => {
-    let suffix = '';
-    if (isPromise(obj)) {
-      const promiseValue = getPromiseValue(obj);
-      if (!promiseValue) {
-        return null;
-      }
-      obj = promiseValue.value;
-      if (promiseValue.resolved) {
-        suffix += '~';
-      } else {
-        suffix += '_';
-      }
-    }
-
-    if (isObject(obj)) {
-      const target = getProxyTarget(obj);
-      if (target) {
-        suffix += '!';
-        obj = target;
-      } else if (isQwikElement(obj)) {
-        const elID = getElementID(obj);
-        if (elID) {
-          return ELEMENT_ID_PREFIX + elID + suffix;
-        }
-        return null;
-      }
-    }
-    const id = objToId.get(obj);
-    if (id) {
-      return id + suffix;
-    }
-    const textId = textNodes?.get(obj);
-    if (textId) {
-      return '*' + textId;
-    }
-    if (fallbackGetObjId) {
-      return fallbackGetObjId(obj);
-    }
-    return null;
-  };
-
-  const mustGetObjId = (obj: any): string => {
-    const key = getObjId(obj);
-    if (key === null) {
-      // TODO(mhevery): this is a hack as we should never get here.
-      // This as a workaround for https://github.com/BuilderIO/qwik/issues/4979
-      if (isQrl(obj)) {
-        const id = intToStr(objToId.size);
-        objToId.set(obj, id);
-        return id;
-      } else {
-        throw qError(QError_missingObjectId, obj);
-      }
-    }
-    return key;
-  };
 
   // Compute subscriptions
   const subsMap = new Map<any, (Subscriptions | number)[]>();
@@ -422,18 +336,7 @@ Task Symbol: ${task.$qrl$.$symbol$}
   });
 
   // Generate object ID by using a monotonic counter
-  let count = 0;
-  for (const obj of objs) {
-    objToId.set(obj, intToStr(count));
-    count++;
-  }
-  if (collector.$noSerialize$.length > 0) {
-    const undefinedID = objToId.get(undefined);
-    assertDefined(undefinedID, 'undefined ID must be defined');
-    for (const obj of collector.$noSerialize$) {
-      objToId.set(obj, undefinedID);
-    }
-  }
+  containerState.$addObjRoots$(objs, collector.$noSerialize$);
 
   // Serialize object subscriptions
   const subs: string[][] = [];
@@ -448,7 +351,7 @@ Task Symbol: ${task.$qrl$.$symbol$}
           if (typeof s === 'number') {
             return `_${s}`;
           }
-          return serializeSubscription(s, getObjId);
+          return serializeSubscription(s, containerState.$getObjId$);
         })
         .filter(isNotNullable)
     );
@@ -458,13 +361,11 @@ Task Symbol: ${task.$qrl$.$symbol$}
   const convertedObjs = serializeObjects(objs, mustGetObjId, getObjId, collector, containerState);
 
   const meta: SnapshotMeta = {};
-  const refs: Record<string, string> = {};
 
   // Write back to the dom
   for (const ctx of allContexts) {
     const node = ctx.$element$;
     const elementID = ctx.$id$;
-    const ref = ctx.$refMap$;
     const props = ctx.$props$;
     const contexts = ctx.$contexts$;
     const tasks = ctx.$tasks$;
@@ -474,13 +375,7 @@ Task Symbol: ${task.$qrl$.$symbol$}
     const elementCaptured = isVirtualElement(node) && collector.$elements$.includes(ctx);
     assertDefined(elementID, `pause: can not generate ID for dom node`, node);
 
-    if (ref.length > 0) {
-      assertElement(node);
-      const value = mapJoin(ref, mustGetObjId, ' ');
-      if (value) {
-        refs[elementID] = value;
-      }
-    } else if (canRender) {
+    if (canRender) {
       let add = false;
       if (elementCaptured) {
         assertDefined(renderQrl, 'renderQrl must be defined');
@@ -529,18 +424,8 @@ Task Symbol: ${task.$qrl$.$symbol$}
     }
   }
 
-  // Sanity check of serialized element
-  if (qDev) {
-    elementToIndex.forEach((value, el) => {
-      if (!value) {
-        logWarn('unconnected element', el.nodeName, '\n');
-      }
-    });
-  }
-
   return {
     state: {
-      refs,
       ctx: meta,
       objs: convertedObjs,
       subs,
@@ -798,7 +683,7 @@ const resolvePromise = (promise: Promise<any>) => {
   );
 };
 
-const getPromiseValue = (promise: Promise<any>): PromiseValue | undefined => {
+export const getPromiseValue = (promise: Promise<any>): PromiseValue | undefined => {
   return (promise as any)[PROMISE_VALUE];
 };
 
@@ -901,31 +786,6 @@ const getManager = (obj: any, containerState: ContainerState) => {
     return getSubscriptionManager(proxy);
   }
   return undefined;
-};
-
-const getQId = (el: QwikElement): string | null => {
-  const ctx = tryGetContext(el);
-  if (ctx) {
-    return ctx.$id$;
-  }
-  return null;
-};
-
-const getTextID = (node: Text, containerState: ContainerState) => {
-  const prev = node.previousSibling;
-  if (prev && isComment(prev)) {
-    if (prev.data.startsWith('t=')) {
-      return ELEMENT_ID_PREFIX + prev.data.slice(2);
-    }
-  }
-  const doc = node.ownerDocument;
-  const id = intToStr(containerState.$elementIndex$++);
-  const open = doc.createComment(`t=${id}`);
-  const close = doc.createComment('');
-  const parent = node.parentElement!;
-  parent.insertBefore(open, node);
-  parent.insertBefore(close, node.nextSibling);
-  return ELEMENT_ID_PREFIX + id;
 };
 
 const isEmptyObj = (obj: Record<string, any>) => {

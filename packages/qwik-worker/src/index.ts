@@ -57,7 +57,7 @@ export const workerQrl: WorkerConstructorQRL = (qrl) => {
       }
       return arg;
     });
-    const data = await _serializeData([qrl, ...filtered], false);
+    const data = await _serializeData([qrl, ...filtered]);
     return new Promise((resolve, reject) => {
       const handler = ({ data }: MessageEvent) => {
         if (Array.isArray(data) && data.length === 3 && data[0] === requestId) {
